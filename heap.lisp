@@ -37,14 +37,16 @@
 
 ;;; ----------------------------------------------------
 
-(defstruct (heap (:constructor %make-heap (test &key (key #'identity))))
-  (key #'identity :read-only t)
+(defstruct (heap (:constructor %make-heap (test &key key)))
 
-  ;; how individual items in the heap are compared
-  (test #'> :read-only t)
+  ;; compare function using test and key again two heap elements
+  (compare (if (null key)
+               test
+             (lambda (a b)
+               (funcall test (funcall key a) (funcall key b)))))
 
   ;; the elements of the heap are stored in an adjustable array
-  (elts (make-array 0 :adjustable t :fill-pointer t) :read-only t))
+  (elts (make-array 0 :adjustable t :fill-pointer t)))
 
 ;;; ----------------------------------------------------
 
@@ -55,20 +57,11 @@
 
 ;;; ----------------------------------------------------
 
-(defun make-heap (test &key (key #'identity) initial-contents)
+(defun make-heap (test &key key initial-contents)
   "Create a heap with data in it."
   (let ((heap (%make-heap test :key key)))
     (prog1 heap
       (map nil #'(lambda (i) (heap-push i heap)) initial-contents))))
-
-;;; ----------------------------------------------------
-
-(declaim (inline heap-compare))
-(defun heap-compare (heap a b)
-  "Compare a vs. b."
-  (with-slots (test key)
-      heap
-    (funcall test (funcall key a) (funcall key b))))
 
 ;;; ----------------------------------------------------
 
@@ -97,7 +90,7 @@
 (defun heap-push (x heap)
   "Insert a new element onto the heap."
   (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (with-slots (elts)
+  (with-slots (compare elts)
       heap
     (loop
        with i = (vector-push-extend x elts)
@@ -108,7 +101,7 @@
        for parent = (aref elts parent-i)
 
        ;; up-shift
-       do (if (heap-compare heap x parent)
+       do (if (funcall compare x parent)
               (progn
                 (rotatef (aref elts i) (aref elts parent-i))
                 (setf i parent-i))
@@ -122,7 +115,7 @@
 (defun heap-pop (heap)
   "Remove the root element from the heap."
   (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (with-slots (elts)
+  (with-slots (compare elts)
       heap
     (cond ((= (length elts) 0) nil)
 
@@ -149,7 +142,7 @@
 
                 ;; choose the better child to test
                 for ci = (cond ((and a b)
-                                (if (heap-compare heap a b) ai bi))
+                                (if (funcall compare a b) ai bi))
 
                                ;; only one child is valid
                                (a ai)
@@ -159,7 +152,7 @@
                 do (cond ((null ci) (loop-finish))
 
                          ;; is the child better?
-                         ((heap-compare heap (aref elts ci) last)
+                         ((funcall compare (aref elts ci) last)
                           (progn
                             (rotatef (aref elts i) (aref elts ci))
                             (shiftf i ci)))
